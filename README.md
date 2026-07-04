@@ -21,7 +21,7 @@ A lightweight, **stateless pre-session** CSRF protection middleware for Express,
 
 ## Introduction
 
-`cookie-csrf` implements the OWASP [Signed Double-Submit Cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) pattern, **but** mints a signed, stateless nonce cookie instead of reading `req.session`. This means `GET /login` doesn't involved the session store (avoiding a sesson db write).
+`cookie-csrf` implements the OWASP [Signed Double-Submit Cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) pattern, **but** mints a signed, stateless nonce cookie instead of reading `req.session`. This means `GET /login` doesn't involved the session store (avoiding a session db write).
 
 - No session dependency — safe to use with `saveUninitialized: false`
 - Constant-time token comparison to prevent timing attacks
@@ -114,7 +114,7 @@ That write **defeats the point of `saveUninitialized: false`**: every unauthenti
 ## Security model (and its limits)
 
 - The barrier that actually stops CSRF is the browser cookie jar + `SameSite`: an attacker can't read the victim's HttpOnly cookie and can't plant one cross-site, so they can't put a matching token in a forged form.
-- The HMAC signature only buys defence against **cookie injection** (a sibling subdomain / MITM writing a cookie value the attacker knows). It does **not** bind the token to a user identity.
+- The HMAC signature only buys defense against **cookie injection** (a sibling subdomain / MITM writing a cookie value the attacker knows). It does **not** bind the token to a user identity.
 - This is fine for the pre-auth case, whose real threat is login-CSRF (covered by the cookie-jar + `SameSite` barrier). It is **weaker than `small-csrf`** — so use it only on unauthenticated routes and rotate on login.
 
 ## Multi-tab caveat
