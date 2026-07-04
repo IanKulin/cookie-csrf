@@ -1,4 +1,4 @@
-# cookie-csrf ![NPM Version](https://img.shields.io/npm/v/cookie-csrf)
+# cookie-csrf ![NPM Version](https://img.shields.io/npm/v/cookie-csrf) ![Downloads](https://img.shields.io/npm/dt/cookie-csrf)
 
 A lightweight, **stateless pre-session** CSRF protection middleware for Express, implementing OWASP's Signed Double-Submit Cookie pattern — but **without** binding the token to a session. Designed for unauthenticated mutating routes;  typically the login form.
 
