@@ -1,6 +1,6 @@
 # cookie-csrf ![NPM Version](https://img.shields.io/npm/v/cookie-csrf)
 
-A lightweight, **stateless pre-session** CSRF protection middleware for Express, implementing OWASP's Signed Double-Submit Cookie pattern — but **without** binding the token to a session. Designed for **unauthenticated routes** (typically the login form).
+A lightweight, **stateless pre-session** CSRF protection middleware for Express, implementing OWASP's Signed Double-Submit Cookie pattern — but **without** binding the token to a session. Designed for unauthenticated mutating routes;  typically the login form.
 
 ## When to use this vs `small-csrf`
 
@@ -11,7 +11,7 @@ A lightweight, **stateless pre-session** CSRF protection middleware for Express,
 | `small-csrf`  | `req.session.id`                  | Authenticated routes (the default)              |
 | `cookie-csrf` | a self-minted signed cookie nonce | **Unauthenticated routes only** (e.g. `/login`) |
 
-> **⚠️ Security caveat — read this first.**
+> ** Security caveat **
 > `cookie-csrf` is **weaker than session-bound CSRF**. Its HMAC signature only
 > defends against cookie injection; it does **not** bind the token to a user
 > identity. That is acceptable for the pre-auth case (whose real threat,
@@ -21,16 +21,12 @@ A lightweight, **stateless pre-session** CSRF protection middleware for Express,
 
 ## Introduction
 
-`cookie-csrf` implements the OWASP [Signed Double-Submit Cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) pattern, but mints a **signed, stateless nonce cookie** instead of reading `req.session`. This means `GET /login` performs **zero session reads/writes and zero DB writes**.
-
-Key features:
+`cookie-csrf` implements the OWASP [Signed Double-Submit Cookie](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) pattern, **but** mints a signed, stateless nonce cookie instead of reading `req.session`. This means `GET /login` doesn't involved the session store (avoiding a sesson db write).
 
 - No session dependency — safe to use with `saveUninitialized: false`
 - Constant-time token comparison to prevent timing attacks
-- Distinct request accessor, cookie key, param, and headers so it never collides with `small-csrf`
+- Distinct request accessor, cookie key, param, and headers to avoid collisions with `small-csrf`
 - Zero runtime dependencies, ESM, Node ≥ 20
-
-Whilst any implementation errors are my own, credit goes to OWASP and their [CSRF Cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html).
 
 ## Installation
 
@@ -113,7 +109,7 @@ app.listen(3000);
 
 That write **defeats the point of `saveUninitialized: false`**: every unauthenticated visitor gets a persisted session row, so an attacker (or a crawler) can hammer `GET /login` and exhaust the session store / rate limits before anyone authenticates.
 
-`cookie-csrf` removes the session dependency for the pre-auth route entirely, so `GET /login` creates no session and sends no `connect.sid`.
+`cookie-csrf` allows the session dependency for the pre-auth route to be removed, so `GET /login` creates no session and sends no `connect.sid`.
 
 ## Security model (and its limits)
 
@@ -123,9 +119,9 @@ That write **defeats the point of `saveUninitialized: false`**: every unauthenti
 
 ## Multi-tab caveat
 
-Because there is no session to key from, a fresh random nonce is minted on **every** safe request. Opening the login form in two tabs therefore leaves only the **last** tab's cookie valid — submitting the older tab's form will 403 and the user simply reloads and retries. This is acceptable for a login form.
+Because there is no session to key from, a fresh random nonce is minted on **every** safe request. Opening the login form in two tabs therefore leaves only the **last** tab's cookie valid — submitting the older tab's form will 403 and the user simply reloads and retries. That's the main UX trade-off for using cookie-csrf.
 
-## How It Works
+## Process
 
 1. On a safe request (GET/HEAD/OPTIONS) a cryptographically strong random nonce is generated, HMAC-signed, and:
    - set as an HTTP-only cookie (`csrf_pre_token` by default), and
@@ -174,11 +170,10 @@ Function added to the request object that returns the current pre-auth CSRF toke
 
 For maximum security:
 
-- Always use HTTPS in production environments
-- Use a secret **different** from both your session secret and your `small-csrf` secret
+- Use HTTPS in production environments
 - Use a cryptographically strong secret (at least 32 characters)
 - **Rotate on login:** `res.clearCookie("csrf_pre_token")` and switch the authenticated area to `small-csrf`
-- Set appropriate `sameSite` and `secure` cookie options for your application
+- Set appropriate `sameSite` and `secure` cookie options (strict + secure: true)
 
 ## Tests
 
@@ -200,6 +195,17 @@ Then visit http://localhost:3000. Observe that `GET /login` sets `csrf_pre_token
 ## License
 
 [MIT](LICENSE)
+
+## Credits
+
+This is basically a copy of [small-csrf](https://www.npmjs.com/package/small-csrf) with the session binding removed. An valid alternative approach might have been to add a session-less mode to small-csrf, but since it's so small (a single 130 line file) I judged that it was better to have it very clear in my projects which csrf was being applied where, and eliminate the chance of small-csrf being used in a weaker mode without the developer noticing.
+
+small-csrf is basically a JS implementation of the OWASP [CSRF Cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), so apart from not binding to the session, that's also the intention of this library.
+
+
+## AI Disclosure
+
+AI tools were used in this project.
 
 ## Versions
 
