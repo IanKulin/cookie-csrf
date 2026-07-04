@@ -1,0 +1,44 @@
+{
+  "name": "cookie-csrf",
+  "version": "0.1.0",
+  "description": "A small, stateless pre-session CSRF protection middleware for Express unauthenticated routes",
+  "main": "cookie-csrf.js",
+  "types": "cookie-csrf.d.ts",
+  "type": "module",
+  "scripts": {
+    "example": "node ./example/server.js",
+    "test": "node --test 'test/**/*.test.js'",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IanKulin/cookie-csrf.git"
+  },
+  "keywords": [
+    "csrf",
+    "express",
+    "middleware",
+    "security",
+    "login",
+    "stateless"
+  ],
+  "files": [
+    "cookie-csrf.js",
+    "cookie-csrf.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": "IanKulin",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/IanKulin/cookie-csrf/issues"
+  },
+  "homepage": "https://github.com/IanKulin/cookie-csrf#readme",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3"
+  }
+}

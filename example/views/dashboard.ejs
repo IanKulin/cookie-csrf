@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Dashboard</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        background-color: #f5f5f5;
+        color: #333;
+        line-height: 1.6;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 50px auto;
+        background: white;
+        padding: 40px;
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      h1 {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #2c3e50;
+        font-size: 2.5em;
+      }
+
+      .alert {
+        padding: 12px;
+        margin: 15px 0;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+
+      .alert-error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+
+      .alert-success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .actions {
+        text-align: center;
+        margin-top: 40px;
+      }
+
+      .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        background-color: #3498db;
+        color: white;
+        text-decoration: none;
+        border: none;
+        border-radius: 4px;
+        font-size: 16px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.1s ease;
+      }
+
+      .btn:hover {
+        background-color: #2980b9;
+        transform: translateY(-1px);
+      }
+
+      .btn:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        background-color: #6c757d;
+      }
+
+      .btn-secondary:hover {
+        background-color: #545b62;
+      }
+
+      .dashboard-content {
+        background-color: #f8f9fa;
+        padding: 30px;
+        border-radius: 6px;
+        margin: 30px 0;
+        border-left: 4px solid #3498db;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Dashboard</h1>
+
+      <% if (errorMessage) { %>
+        <div class="alert alert-error">
+          <%= errorMessage %>
+        </div>
+      <% } %>
+
+      <% if (successMessage) { %>
+        <div class="alert alert-success">
+          <%= successMessage %>
+        </div>
+      <% } %>
+
+      <div class="dashboard-content">
+        <p>You are logged in. This authenticated area is protected by
+          <strong>small-csrf</strong> — a session-bound token. The pre-auth
+          <code>csrf_pre_token</code> cookie was cleared on login.</p>
+        <p style="text-align: center; color: #666; margin-top: 20px;">
+          Try opening attack.html to simulate a CSRF attack on /login
+        </p>
+      </div>
+
+      <!-- Authenticated form: small-csrf. Note the _csrf field name and the
+           csrfToken() accessor — distinct from the login form's pre-auth pair. -->
+      <div class="actions">
+        <form action="/dashboard/action" method="POST" style="display: inline;">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button type="submit" class="btn">Perform action</button>
+        </form>
+        <a href="/logout" class="btn btn-secondary">Logout</a>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <title>CSRF Attack Simulation</title>
+  </head>
+  <body onload="document.getElementById('csrf-form').submit()">
+    <h3>Simulating login-CSRF attack...</h3>
+
+    <!-- Auto-submits to /login without a valid _csrf_pre token.
+         cookie-csrf rejects it: the attacker cannot read or plant the victim's
+         HttpOnly csrf_pre_token cookie, so no matching token can be forged. -->
+    <form id="csrf-form" action="http://localhost:3000/login" method="POST">
+      <input type="hidden" name="username" value="admin" />
+      <input type="hidden" name="password" value="password" />
+    </form>
+  </body>
+</html>
