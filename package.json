@@ -1,6 +1,6 @@
 {
   "name": "cookie-csrf",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A small, stateless pre-session CSRF protection middleware for Express unauthenticated routes",
   "main": "cookie-csrf.js",
   "types": "cookie-csrf.d.ts",
