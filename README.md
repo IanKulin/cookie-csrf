@@ -82,6 +82,18 @@ app.get("/login", cookieCsrf, (req, res) => {
 
 app.post("/login", cookieCsrf, (req, res) => {
   // ...authenticate...
+  if (!valid) {
+    // Bad password: re-render the form. preCsrfToken() rotates the cookie and
+    // returns a matching token, so the re-rendered form's next submit succeeds.
+    return res.status(401).send(`
+      <p>Invalid username or password.</p>
+      <form action="/login" method="POST">
+        <input type="hidden" name="_csrf_pre" value="${req.preCsrfToken()}">
+        <input name="username"><input type="password" name="password">
+        <button type="submit">Login</button>
+      </form>
+    `);
+  }
   res.clearCookie("csrf_pre_token"); // retire the pre-auth token
   req.session.user = { name: req.body.username }; // now a real session exists
   req.session.save(() => res.redirect("/dashboard"));
@@ -130,6 +142,7 @@ Because there is no session to key from, a fresh random nonce is minted on **eve
    - recomputes the HMAC from the cookie's random value and checks it (rejects cookie injection),
    - checks the submitted token equals the cookie token (double-submit),
    - both comparisons are constant-time.
+3. After verification passes, `req.preCsrfToken()` **rotates** the token: the first time a handler calls it, a fresh nonce is minted, the cookie is refreshed, and the matching token is returned — so re-rendering a form (e.g. the login form after a bad password) "just works". Rotation is lazy: a handler that verifies and then redirects (a successful login) never calls the accessor, so no cookie is set.
 
 ## API Reference
 
@@ -155,6 +168,8 @@ Creates and returns the CSRF middleware function.
 ### `req.preCsrfToken()`
 
 Function added to the request object that returns the current pre-auth CSRF token. Use this to include the token in your login form or AJAX requests.
+
+The contract is uniform across methods: **`req.preCsrfToken()` always returns a token that matches the `csrf_pre_token` cookie set on the response.** On safe methods (GET/HEAD/OPTIONS) the cookie is set unconditionally. On verified state-changing methods (POST/PUT/PATCH/DELETE) calling the accessor rotates the token — minting a fresh nonce and refreshing the cookie — which is exactly what you want when re-rendering a form after a validation failure. The token is effectively single-use: each accepted submit that re-renders rotates the nonce.
 
 > **Note the deliberate renames vs `small-csrf`** so the two never collide when loaded together:
 >
@@ -198,7 +213,7 @@ Then visit http://localhost:3000. Observe that `GET /login` sets `csrf_pre_token
 
 ## Credits
 
-This is basically a copy of [small-csrf](https://www.npmjs.com/package/small-csrf) with the session binding removed. An valid alternative approach might have been to add a session-less mode to small-csrf, but since it's so small (a single 130 line file) I judged that it was better to have it very clear in my projects which csrf was being applied where, and eliminate the chance of small-csrf being used in a weaker mode without the developer noticing.
+This is basically a copy of [small-csrf](https://www.npmjs.com/package/small-csrf) with the session binding removed. A valid alternative approach might have been to add a session-less mode to small-csrf, but since it's so small (a single 130 line file) I judged that it was better to have it very clear in my projects which csrf was being applied where, and eliminate the chance of small-csrf being used in a weaker mode without the developer noticing.
 
 small-csrf is basically a JS implementation of the OWASP [CSRF Cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), so apart from not binding to the session, that's also the intention of this library.
 
@@ -210,3 +225,4 @@ AI tools were used in this project.
 ## Versions
 
 - 0.1.0 - initial
+- 0.2.0 - `req.preCsrfToken()` now rotates the token on verified state-changing requests (lazy), giving a uniform "always matches the cookie" contract so re-rendering a form after a validation failure works without reflecting the submitted token

@@ -338,6 +338,91 @@ describe("cookieCsrfProtection", () => {
     });
   });
 
+  describe("token rotation on verified requests (lazy)", () => {
+    // helper: run a GET to mint a valid token, then a verified POST
+    function verifiedPost(middleware, overrides = {}) {
+      const getReq = createMockReq({ method: "GET" });
+      const getRes = createMockRes();
+      middleware(getReq, getRes, createMockNext());
+      const validToken = getRes.cookies.csrf_pre_token.value;
+
+      const postReq = createMockReq({
+        method: "POST",
+        cookies: { csrf_pre_token: validToken },
+        body: { _csrf_pre: validToken },
+        ...overrides,
+      });
+      const postRes = createMockRes();
+      const postNext = createMockNext();
+      middleware(postReq, postRes, postNext);
+      return { postReq, postRes, postNext, validToken };
+    }
+
+    test("does NOT set a cookie on a verified POST that never calls preCsrfToken() (no moot cookie)", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const { postRes, postNext } = verifiedPost(middleware);
+
+      assert.equal(postNext.calls[0], "called");
+      // handler redirected without asking for a token → nothing rotated
+      assert.equal(postRes.cookies.csrf_pre_token, undefined);
+    });
+
+    test("calling preCsrfToken() rotates: sets a new cookie whose value equals the returned token", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const { postReq, postRes, validToken } = verifiedPost(middleware);
+
+      const exposed = postReq.preCsrfToken();
+      assert.ok(postRes.cookies.csrf_pre_token, "a fresh cookie is set");
+      assert.equal(postRes.cookies.csrf_pre_token.value, exposed);
+      // it is genuinely rotated, not the just-submitted token
+      assert.notEqual(exposed, validToken);
+    });
+
+    test("the rotated token verifies on a subsequent POST (bad-password re-render regression)", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const { postReq, postRes } = verifiedPost(middleware);
+
+      // handler re-renders a form with the rotated token
+      const rotatedToken = postReq.preCsrfToken();
+      const rotatedCookie = postRes.cookies.csrf_pre_token.value;
+
+      // the user submits that re-rendered form
+      const nextReq = createMockReq({
+        method: "POST",
+        cookies: { csrf_pre_token: rotatedCookie },
+        body: { _csrf_pre: rotatedToken },
+      });
+      const nextRes = createMockRes();
+      const nextNext = createMockNext();
+      middleware(nextReq, nextRes, nextNext);
+
+      assert.equal(nextNext.calls[0], "called");
+    });
+
+    test("preCsrfToken() is memoised within a request (stable across repeated calls)", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const { postReq } = verifiedPost(middleware);
+
+      assert.equal(postReq.preCsrfToken(), postReq.preCsrfToken());
+    });
+
+    test("a missing/invalid token still throws EBADCSRFTOKEN and does not rotate", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const req = createMockReq({
+        method: "POST",
+        cookies: { csrf_pre_token: "invalid.token" },
+        body: { _csrf_pre: "invalid.token" },
+      });
+      const res = createMockRes();
+      const next = createMockNext();
+
+      middleware(req, res, next);
+
+      assert.equal(next.calls[0].code, "EBADCSRFTOKEN");
+      assert.equal(res.cookies.csrf_pre_token, undefined);
+    });
+  });
+
   describe("no-session contract", () => {
     test("should generate a token when req.session is undefined (safe method)", () => {
       const middleware = cookieCsrfProtection({ secret: testSecret });

@@ -51,9 +51,25 @@ function cookieCsrfProtection(options = {}) {
       csrfError.status = 403; // HTTP status code
       return next(csrfError);
     }
-    // for the rare situation where the library user needs to render another form
-    // with a POST action and wants a fresh token, provide that ability
-    req.preCsrfToken = () => generateToken(config).token;
+    // Verification passed. Expose an accessor that ROTATES the token on demand:
+    // the first time the handler asks for a token (e.g. re-rendering the login
+    // form after a bad password) we mint a fresh nonce, refresh the cookie, and
+    // return the matching token. This keeps the contract for preCsrfToken()
+    // uniform with the safe-method branch — it always returns a token that
+    // matches the cookie set on the response.
+    //
+    // Rotation is lazy: a handler that verifies and then redirects (e.g. a
+    // SUCCESSFUL login) never calls the accessor, so no cookie is set and no
+    // stale Set-Cookie is emitted. The token is minted once and memoised so
+    // repeated calls within a request are stable.
+    let rotated;
+    req.preCsrfToken = () => {
+      if (!rotated) {
+        rotated = generateToken(config);
+        res.cookie(config.cookie.key, rotated.token, rotated.cookieOptions);
+      }
+      return rotated.token;
+    };
     next();
   };
 }
