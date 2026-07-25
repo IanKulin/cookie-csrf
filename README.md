@@ -1,6 +1,6 @@
 # cookie-csrf ![NPM Version](https://img.shields.io/npm/v/cookie-csrf) ![Downloads](https://img.shields.io/npm/dt/cookie-csrf)
 
-A lightweight, **stateless pre-session** CSRF protection middleware for Express, implementing OWASP's Signed Double-Submit Cookie pattern — but **without** binding the token to a session. Designed for unauthenticated mutating routes;  typically the login form.
+A lightweight, **stateless pre-session** CSRF protection middleware for Express, implementing OWASP's Signed Double-Submit Cookie pattern — but **without** binding the token to a session. Designed for unauthenticated mutating routes; typically the login form.
 
 ## When to use this vs `small-csrf`
 
@@ -129,13 +129,24 @@ That write **defeats the point of `saveUninitialized: false`**: every unauthenti
 - The HMAC signature only buys defense against **cookie injection** (a sibling subdomain / MITM writing a cookie value the attacker knows). It does **not** bind the token to a user identity.
 - This is fine for the pre-auth case, whose real threat is login-CSRF (covered by the cookie-jar + `SameSite` barrier). It is **weaker than `small-csrf`** — so use it only on unauthenticated routes and rotate on login.
 
-## Multi-tab caveat
+## Token reuse on safe requests (and the multi-tab / prefetch caveat it fixes)
 
-Because there is no session to key from, a fresh random nonce is minted on **every** safe request. Opening the login form in two tabs therefore leaves only the **last** tab's cookie valid — submitting the older tab's form will 403 and the user simply reloads and retries. That's the main UX trade-off for using cookie-csrf.
+A safe request (GET/HEAD/OPTIONS) reuses the existing `csrf_pre_token` cookie if the browser already presents one and it's well-formed (HMAC matches), rather than minting a fresh nonce on every single request. A fresh nonce is only minted when there's no cookie yet, or the presented one is malformed.
+
+This matters because modern Chromium-based browsers (Chrome, Edge, Brave,Vivaldi, Opera) routinely fire extra,  invisible, credentialed GETs to a URL the user is merely likely to visit next (prefetch/prerender), independent of "View Source", retried connections, or a second tab open on the same form.
+
+Without reuse, every one of those incidental GETs would silently rotate the cookie out from under the page the  user is actually looking at, orphaning its embedded token and 403ing the next real submit — this used to be documented here as the "multi-tab caveat"; it's now fixed for all of these cases, not
+just the two-tabs one.
+
+Reuse has no effect on the security model: `isWellFormed` only checks that the cookie's HMAC matches its random value (a shape check), never that it's the _right_ token for the current visitor. The check that actually matters —recomputing and comparing the HMAC, then the double-submit comparison — still runs in full on every state-changing request via `verifyToken()`; a forged cookie that happens to be well-formed is still rejected there.
+
+**Sliding `maxAge`:** because reuse re-issues the cookie (same value, fresh `Set-Cookie`), `cookie.maxAge` measures idle time since the _last_ safe request, not time since the token was first minted. A tab left open with
+periodic incidental GETs (prefetch, polling, etc.) keeps its token alive indefinitely rather than expiring on a hard 1-hour cap from mint. The token still only ever dies by: expiring after `maxAge` of genuine inactivity, or
+being consumed and rotated by a verified POST/PUT/PATCH/DELETE.
 
 ## Process
 
-1. On a safe request (GET/HEAD/OPTIONS) a cryptographically strong random nonce is generated, HMAC-signed, and:
+1. On a safe request (GET/HEAD/OPTIONS): if the browser presents an existing, well-formed `csrf_pre_token` cookie, it's reused (see [Token reuse on safe requests (#token-reuse-on-safe-requests-and-the-multi-tab--prefetch-caveat-it-fixes)); otherwise a cryptographically strong random nonce is generated and HMAC-signed. Either way the token is:
    - set as an HTTP-only cookie (`csrf_pre_token` by default), and
    - exposed via `req.preCsrfToken()` for inclusion in forms or AJAX.
 2. On a state-changing request (POST/PUT/PATCH/DELETE) the middleware:
@@ -152,18 +163,18 @@ Creates and returns the CSRF middleware function.
 
 #### Options
 
-| Option            | Type     | Default                                                           | Description                                                         |
-| ----------------- | -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `secret`          | String   | _required_                                                        | Secret key used for HMAC signature (must be at least 32 characters) |
-| `cookie.key`      | String   | `"csrf_pre_token"`                                                | Name of the cookie storing the CSRF token                           |
-| `cookie.path`     | String   | `"/"`                                                             | Path for the CSRF cookie                                            |
-| `cookie.httpOnly` | Boolean  | `true`                                                            | Whether the cookie is HTTP only                                     |
-| `cookie.sameSite` | String   | `"strict"`                                                        | SameSite policy for the cookie (`"strict"`, `"lax"`, or `"none"`)   |
-| `cookie.secure`   | Boolean  | `true`                                                            | Whether the cookie requires HTTPS                                   |
-| `cookie.maxAge`   | Number   | `3600000`                                                         | Max age of the cookie in milliseconds (1 hour default)              |
-| `ignoreMethods`   | Array    | `["GET", "HEAD", "OPTIONS"]`                                      | HTTP methods that don't need CSRF validation                        |
-| `csrfParam`       | String   | `"_csrf_pre"`                                                     | Name of the parameter containing the CSRF token in requests         |
-| `value`           | Function | reads `body[csrfParam]` → `x-pre-csrf-token` → `x-xsrf-pre-token` | Custom extractor for the submitted token (never the query string)   |
+| Option            | Type     | Default                                                           | Description                                                                                                                                                                                                           |
+| ----------------- | -------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `secret`          | String   | _required_                                                        | Secret key used for HMAC signature (must be at least 32 characters)                                                                                                                                                   |
+| `cookie.key`      | String   | `"csrf_pre_token"`                                                | Name of the cookie storing the CSRF token                                                                                                                                                                             |
+| `cookie.path`     | String   | `"/"`                                                             | Path for the CSRF cookie                                                                                                                                                                                              |
+| `cookie.httpOnly` | Boolean  | `true`                                                            | Whether the cookie is HTTP only                                                                                                                                                                                       |
+| `cookie.sameSite` | String   | `"strict"`                                                        | SameSite policy for the cookie (`"strict"`, `"lax"`, or `"none"`)                                                                                                                                                     |
+| `cookie.secure`   | Boolean  | `true`                                                            | Whether the cookie requires HTTPS                                                                                                                                                                                     |
+| `cookie.maxAge`   | Number   | `3600000`                                                         | Max age of the cookie in milliseconds (1 hour default). Reissued (sliding) on every safe request that reuses the token — see [Token reuse](#token-reuse-on-safe-requests-and-the-multi-tab--prefetch-caveat-it-fixes) |
+| `ignoreMethods`   | Array    | `["GET", "HEAD", "OPTIONS"]`                                      | HTTP methods that don't need CSRF validation                                                                                                                                                                          |
+| `csrfParam`       | String   | `"_csrf_pre"`                                                     | Name of the parameter containing the CSRF token in requests                                                                                                                                                           |
+| `value`           | Function | reads `body[csrfParam]` → `x-pre-csrf-token` → `x-xsrf-pre-token` | Custom extractor for the submitted token (never the query string)                                                                                                                                                     |
 
 ### `req.preCsrfToken()`
 
@@ -217,7 +228,6 @@ This is basically a copy of [small-csrf](https://www.npmjs.com/package/small-csr
 
 small-csrf is basically a JS implementation of the OWASP [CSRF Cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), so apart from not binding to the session, that's also the intention of this library.
 
-
 ## AI Disclosure
 
 AI tools were used in this project.
@@ -226,3 +236,4 @@ AI tools were used in this project.
 
 - 0.1.0 - initial
 - 0.2.0 - `req.preCsrfToken()` now rotates the token on verified state-changing requests (lazy), giving a uniform "always matches the cookie" contract so re-rendering a form after a validation failure works without reflecting the submitted token
+- 0.3.0 - Safe requests (GET/HEAD/OPTIONS) reuse an existing well-formed `csrf_pre_token` cookie instead of unconditionally minting a fresh one. 

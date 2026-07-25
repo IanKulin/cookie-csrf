@@ -35,10 +35,26 @@ function cookieCsrfProtection(options = {}) {
   // return the middleware function
   return function cookieCsrf(req, res, next) {
     if (config.ignoreMethods.includes(req.method)) {
-      // for the methods we don't need to check, we mint a fresh token, put it in
-      // a cookie, and expose an accessor so the library user can embed it in html.
-      // Deliberately does NOT touch req.session — that is the whole point.
-      const tokenData = generateToken(config);
+      // Reuse an existing, well-formed token/cookie instead of always minting
+      // a fresh one. Without this, browsers that issue extra, invisible GETs
+      // to a page a user is about to (or might) visit — Chromium's
+      // prefetch/prerender, "View Source", a retried connection, a second
+      // tab — silently rotate the cookie out from under a page that's
+      // already been rendered and handed to the user, orphaning its
+      // embedded token and 403ing the next real submit.
+      //
+      // isWellFormed only checks *shape* (HMAC matches the random value) —
+      // it is not a security check on its own. A forged cookie that happens
+      // to be well-formed but wrong is still caught where it matters:
+      // verifyToken() on the POST re-derives the HMAC and rejects it.
+      // Reusing it here on a GET costs nothing, since GETs are never
+      // state-changing. Note the cookie's maxAge is refreshed on every
+      // reuse, so an idle-but-open tab keeps its token alive on a sliding
+      // window rather than a hard expiry from first mint (see README).
+      const existingCookie = req.cookies?.[config.cookie.key];
+      const tokenData = isWellFormed(existingCookie, config)
+        ? { token: existingCookie, cookieOptions: buildCookieOptions(config) }
+        : generateToken(config);
       res.cookie(config.cookie.key, tokenData.token, tokenData.cookieOptions);
       req.preCsrfToken = () => tokenData.token;
       next();
@@ -74,28 +90,50 @@ function cookieCsrfProtection(options = {}) {
   };
 }
 
-function generateToken(config) {
-  // a fresh random nonce per safe request — there is no session to key from,
-  // so there is nothing to make the token stable across requests (see the
-  // multi-tab caveat in the README)
-  const randomValue = crypto.randomBytes(32).toString("hex");
-  const message = `${randomValue.length}!${randomValue}`; // no sessionID segment
-  const hmac = crypto
-    .createHmac("sha256", config.secret)
-    .update(message)
-    .digest("hex");
-  const token = `${hmac}.${randomValue}`;
-  const cookieOptions = {
+function buildCookieOptions(config) {
+  return {
     path: config.cookie.path,
     httpOnly: config.cookie.httpOnly,
     sameSite: config.cookie.sameSite,
     secure: config.cookie.secure,
     maxAge: config.cookie.maxAge,
   };
+}
+
+// HMAC over the random value alone (no session segment — there is no
+// session to key from).
+function computeHmac(config, randomValue) {
+  const message = `${randomValue.length}!${randomValue}`;
+  return crypto
+    .createHmac("sha256", config.secret)
+    .update(message)
+    .digest("hex");
+}
+
+function generateToken(config) {
+  const randomValue = crypto.randomBytes(32).toString("hex");
+  const hmac = computeHmac(config, randomValue);
+  const token = `${hmac}.${randomValue}`;
   return {
     token,
-    cookieOptions,
+    cookieOptions: buildCookieOptions(config),
   };
+}
+
+// Checks *shape* only — that the HMAC matches the random value. This is not
+// a security check on its own (see the safe-method branch above for why
+// that's fine); it exists so the GET path can tell "a cookie this middleware
+// minted" from "no cookie" or "garbage", without re-deriving the HMAC logic.
+function isWellFormed(cookieValue, config) {
+  if (!cookieValue) {
+    return false;
+  }
+  const parts = cookieValue.split(".");
+  if (parts.length !== 2 || !parts[1]) {
+    return false; // rejects "malformed", "."
+  }
+  const [hmac, randomValue] = parts;
+  return constantTimeEquals(hmac, computeHmac(config, randomValue));
 }
 
 function verifyToken(req, config) {
@@ -104,24 +142,8 @@ function verifyToken(req, config) {
   if (!cookieToken || !requestToken) {
     return false;
   }
-  const cookieParts = cookieToken.split(".");
-  if (cookieParts.length !== 2) {
-    return false;
-  }
-  const hmacFromCookie = cookieParts[0];
-  const randomValue = cookieParts[1];
-  if (!randomValue) {
-    return false; // rejects "malformed", "."
-  }
-  // recreate the HMAC from the random value alone (no session segment)
-  const message = `${randomValue.length}!${randomValue}`;
-  const expectedHmac = crypto
-    .createHmac("sha256", config.secret)
-    .update(message)
-    .digest("hex");
-  // compare them
   return (
-    constantTimeEquals(hmacFromCookie, expectedHmac) &&
+    isWellFormed(cookieToken, config) &&
     constantTimeEquals(requestToken, cookieToken)
   );
 }

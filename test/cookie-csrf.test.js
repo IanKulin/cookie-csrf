@@ -338,6 +338,126 @@ describe("cookieCsrfProtection", () => {
     });
   });
 
+  describe("safe-method token reuse (idempotent GET)", () => {
+    // regression test for the Chromium prefetch/prerender bug: an incidental
+    // extra GET (browser prefetch, "View Source", a second tab, a retried
+    // connection) must NOT orphan a token already rendered onto a page.
+    test("a second GET presenting the first GET's cookie reuses the same token", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+
+      const req1 = createMockReq({ method: "GET" });
+      const res1 = createMockRes();
+      middleware(req1, res1, createMockNext());
+      const firstToken = res1.cookies.csrf_pre_token.value;
+
+      // simulate the browser presenting back the cookie it was just given
+      const req2 = createMockReq({
+        method: "GET",
+        cookies: { csrf_pre_token: firstToken },
+      });
+      const res2 = createMockRes();
+      middleware(req2, res2, createMockNext());
+      const secondToken = res2.cookies.csrf_pre_token.value;
+
+      assert.equal(secondToken, firstToken);
+    });
+
+    test("the original, already-rendered token still verifies after an incidental extra GET", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+
+      const getReq = createMockReq({ method: "GET" });
+      const getRes = createMockRes();
+      middleware(getReq, getRes, createMockNext());
+      const originalToken = getRes.cookies.csrf_pre_token.value;
+
+      // an incidental extra GET, as a Chromium prefetch/prerender would fire,
+      // presenting the cookie the first GET just set
+      const extraReq = createMockReq({
+        method: "GET",
+        cookies: { csrf_pre_token: originalToken },
+      });
+      middleware(extraReq, createMockRes(), createMockNext());
+
+      // the user submits the form from the FIRST response, not the extra GET
+      const postReq = createMockReq({
+        method: "POST",
+        cookies: { csrf_pre_token: originalToken },
+        body: { _csrf_pre: originalToken },
+      });
+      const postRes = createMockRes();
+      const postNext = createMockNext();
+      middleware(postReq, postRes, postNext);
+
+      assert.equal(postNext.calls[0], "called");
+    });
+
+    test("a malformed existing cookie is not reused — a fresh token is minted", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+
+      const req = createMockReq({
+        method: "GET",
+        cookies: { csrf_pre_token: "not-a-real-token" },
+      });
+      const res = createMockRes();
+      middleware(req, res, createMockNext());
+
+      assert.notEqual(res.cookies.csrf_pre_token.value, "not-a-real-token");
+    });
+
+    test("a well-formed but forged (wrong-secret) cookie is not reused — a fresh token is minted", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const otherMiddleware = cookieCsrfProtection({
+        secret: "a-different-secret-key-for-testing-purposes",
+      });
+
+      const foreignReq = createMockReq({ method: "GET" });
+      const foreignRes = createMockRes();
+      otherMiddleware(foreignReq, foreignRes, createMockNext());
+      const foreignToken = foreignRes.cookies.csrf_pre_token.value;
+
+      const req = createMockReq({
+        method: "GET",
+        cookies: { csrf_pre_token: foreignToken },
+      });
+      const res = createMockRes();
+      middleware(req, res, createMockNext());
+
+      assert.notEqual(res.cookies.csrf_pre_token.value, foreignToken);
+    });
+
+    test("reusing a token refreshes the cookie's maxAge (sliding window)", () => {
+      const middleware = cookieCsrfProtection({
+        secret: testSecret,
+        cookie: { maxAge: 1000 },
+      });
+
+      const req1 = createMockReq({ method: "GET" });
+      const res1 = createMockRes();
+      middleware(req1, res1, createMockNext());
+      const token = res1.cookies.csrf_pre_token.value;
+
+      const req2 = createMockReq({
+        method: "GET",
+        cookies: { csrf_pre_token: token },
+      });
+      const res2 = createMockRes();
+      middleware(req2, res2, createMockNext());
+
+      // same token, but a fresh maxAge is set on the reissued cookie
+      assert.equal(res2.cookies.csrf_pre_token.value, token);
+      assert.equal(res2.cookies.csrf_pre_token.options.maxAge, 1000);
+    });
+
+    test("still mints a fresh token when no cookie is presented at all", () => {
+      const middleware = cookieCsrfProtection({ secret: testSecret });
+      const req = createMockReq({ method: "GET", cookies: {} });
+      const res = createMockRes();
+      middleware(req, res, createMockNext());
+
+      assert.ok(res.cookies.csrf_pre_token.value);
+    });
+  });
+
   describe("token rotation on verified requests (lazy)", () => {
     // helper: run a GET to mint a valid token, then a verified POST
     function verifiedPost(middleware, overrides = {}) {
